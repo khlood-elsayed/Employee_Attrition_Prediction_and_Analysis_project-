@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Attrition Prediction</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            color: #333;
+        }
+        .header {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            right: 0;
+            height: 60px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            box-sizing: border-box;
+        }
+        .logo {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 2px solid #fff;
+        }
+        .dashboard-link {
+            background: #28a745;
+            color: #fff;
+            padding: 10px 15px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+        .dashboard-link:hover {
+            background: #218838;
+        }
+        .title {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 3em;
+            font-weight: 700;
+            color: #fff; /* Changed to white for contrast against the gradient background */
+            text-align: center;
+            margin: 120px 0 40px 0;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .container {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            max-width: 700px; 
+            width: 100%;
+            text-align: center;
+        }
+        h3 {
+            color: #28a745;
+            margin-bottom: 30px;
+            font-size: 1.5em;
+        }
+        form {
+            text-align: left;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+        }
+        select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            background: #f9f9f9;
+            transition: border-color 0.3s;
+        }
+        select:focus {
+            border-color: #667eea;
+            outline: none;
+        }
+        .warning {
+            color: red;
+            font-size: 14px;
+            margin-top: 5px;
+            display: none;
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .prediction {
+            background: #e9f7ef;
+            border: 1px solid #28a745;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .prediction.red {
+            background: #f8d7da;
+            border: 1px solid #dc3545;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <svg class="logo" width="60" height="60" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="30" cy="30" r="30" fill="#28a745" />
+            <!-- Bar Chart -->
+            <rect x="12" y="35" width="4" height="10" fill="#fff" />
+            <rect x="18" y="30" width="4" height="15" fill="#fff" />
+            <rect x="24" y="25" width="4" height="20" fill="#fff" />
+            <rect x="30" y="20" width="4" height="25" fill="#fff" />
+            <!-- Magnifying Glass -->
+            <circle cx="45" cy="20" r="8" fill="none" stroke="#fff" stroke-width="2" />
+            <line x1="50" y1="25" x2="55" y2="30" stroke="#fff" stroke-width="2" />
+        </svg>
+        <a href="/dashboard" class="dashboard-link">View Dashboard</a>
+    </div>
+    <h1 class="title">Employee Attrition Prediction</h1>
+    <div class="container">
+        <div class="prediction" id="prediction-result">
+            <h3 id="prediction-text"></h3>
+        </div>
+
+        <form id="prediction-form" action="/predict" method="post">
+            <div class="form-group">
+                <label for="work_life_balance">Work-Life Balance Good:</label>
+                <select name="Work-Life Balance_Good" id="work_life_balance">
+                    <option value="" disabled selected>Select</option>
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                </select>
+                <div class="warning" id="warning-work_life_balance">Please select an option.</div>
+            </div>
+
+            <div class="form-group">
+                <label for="marital_married">Marital Status Married:</label>
+                <select name="Marital Status_Married" id="marital_married">
+                    <option value="" disabled selected>Select</option>
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                </select>
+                <div class="warning" id="warning-marital_married">Please select an option.</div>
+            </div>
+
+            <div class="form-group">
+                <label for="marital_single">Marital Status Single:</label>
+                <select name="Marital Status_Single" id="marital_single">
+                    <option value="" disabled selected>Select</option>
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                </select>
+                <div class="warning" id="warning-marital_single">Please select an option.</div>
+            </div>
+
+            <div class="form-group">
+                <label for="job_level">Job Level Senior:</label>
+                <select name="Job Level_Senior" id="job_level">
+                    <option value="" disabled selected>Select</option>
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                </select>
+                <div class="warning" id="warning-job_level">Please select an option.</div>
+            </div>
+
+            <div class="form-group">
+                <label for="remote_work">Remote Work:</label>
+                <select name="Remote Work_Yes" id="remote_work">
+                    <option value="" disabled selected>Select</option>
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                </select>
+                <div class="warning" id="warning-remote_work">Please select an option.</div>
+            </div>
+
+            <button type="submit" id="submit-btn">Predict Attrition</button>
+        </form>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Analyzing data...</p>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('prediction-form').addEventListener('submit', function(e) {
+            const selects = document.querySelectorAll('select');
+            let isValid = true;
+
+            selects.forEach(select => {
+                const warning = document.getElementById('warning-' + select.id);
+                if (select.value === '') {
+                    warning.style.display = 'block';
+                    isValid = false;
+                } else {
+                    warning.style.display = 'none';
+                }
+            });
+
+            if (!isValid) {
+                e.preventDefault();
+                return;
+            }
+
+            e.preventDefault();
+            const formData = new FormData(this);
+            const submitBtn = document.getElementById('submit-btn');
+            const loading = document.getElementById('loading');
+            const predictionResult = document.getElementById('prediction-result');
+            const predictionText = document.getElementById('prediction-text');
+
+            submitBtn.disabled = true;
+            loading.style.display = 'block';
+            predictionResult.style.display = 'none';
+            predictionResult.classList.remove('red'); // Reset color
+
+            fetch('/predict', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.prediction === 'Not stayed') {
+                    predictionText.innerHTML = '<span style="color: red; font-weight: bold;">Prediction: Not stayed</span>';
+                    predictionResult.classList.add('red');
+                } else {
+                    predictionText.innerHTML = 'Prediction: ' + data.prediction;
+                }
+                predictionResult.style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                predictionText.innerHTML = 'Error: Unable to get prediction.';
+                predictionResult.style.display = 'block';
+            })
+            .finally(() => {
+                submitBtn.disabled = false;
+                loading.style.display = 'none';
+            });
+        });
+    </script>
+</body>
+</html>
