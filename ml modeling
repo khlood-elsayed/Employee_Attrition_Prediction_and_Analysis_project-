@@ -1,0 +1,183 @@
+import pandas as pd
+import numpy as np
+from sklearn.feature_selection import SelectKBest, f_classif
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, StackingClassifier
+from sklearn.linear_model import LogisticRegression
+from xgboost import XGBClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix, RocCurveDisplay
+from imblearn.over_sampling import SMOTE
+import matplotlib.pyplot as plt
+import warnings
+import pickle
+import joblib
+
+warnings.filterwarnings('ignore')
+
+# -------------------------
+# Load and prepare data
+# -------------------------
+df = pd.read_csv('eff.csv')
+if 'Employee ID' in df.columns:
+    df = df.drop('Employee ID', axis=1)
+
+X = df.drop('Attrition_Stayed', axis=1)
+y = df['Attrition_Stayed']
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+# -------------------------
+# Balance dataset
+# -------------------------
+smote = SMOTE(random_state=42)
+X_train_res, y_train_res = smote.fit_resample(X_train, y_train)
+
+# -------------------------
+# Feature selection
+# -------------------------
+selector = SelectKBest(score_func=f_classif, k=20)
+selector.fit(X_train_res, y_train_res)
+selected_features = X_train.columns[selector.get_support()]
+print(f"Selected {len(selected_features)} features: {list(selected_features)}")
+
+# -------------------------
+# Model definitions
+# -------------------------
+models_params = {
+    'LogisticRegression': {
+        'model': LogisticRegression(random_state=42, max_iter=2000),
+        'params': {'C': [0.1, 1, 10], 'penalty': ['l2'], 'solver': ['lbfgs']}
+    },
+    'RandomForest': {
+        'model': RandomForestClassifier(random_state=42, n_jobs=-1),
+        'params': {'n_estimators': [100, 200], 'max_depth': [10, 20, None], 'min_samples_split': [2, 5]}
+    },
+    'GradientBoosting': {
+        'model': GradientBoostingClassifier(random_state=42),
+        'params': {'n_estimators': [100, 200], 'learning_rate': [0.1, 0.2], 'max_depth': [3, 5]}
+    },
+    'XGBoost': {
+        'model': XGBClassifier(random_state=42, n_jobs=-1, eval_metric='logloss'),
+        'params': {'n_estimators': [100, 200], 'learning_rate': [0.1, 0.2], 'max_depth': [3, 5]}
+    }
+}
+
+# -------------------------
+# Train models with GridSearch
+# -------------------------
+best_models = {}
+for name, mp in models_params.items():
+    print(f"\nTraining {name}...")
+    grid = GridSearchCV(mp['model'], mp['params'], cv=3, scoring='f1', n_jobs=-1, verbose=0)
+    grid.fit(X_train_res[selected_features], y_train_res)
+    best_models[name] = grid.best_estimator_
+    print(f"  Best CV F1: {grid.best_score_:.4f}")
+
+# -------------------------
+# Evaluate models
+# -------------------------
+results = []
+for name, model in best_models.items():
+    y_pred = model.predict(X_test[selected_features])
+    y_proba = model.predict_proba(X_test[selected_features])[:, 1]
+    results.append({
+        'Model': name,
+        'Accuracy': accuracy_score(y_test, y_pred),
+        'Precision': precision_score(y_test, y_pred),
+        'Recall': recall_score(y_test, y_pred),
+        'F1': f1_score(y_test, y_pred),
+        'ROC_AUC': roc_auc_score(y_test, y_proba)
+    })
+
+results_df = pd.DataFrame(results).sort_values('F1', ascending=False)
+print("\nModel Results:")
+print(results_df.to_string(index=False))
+
+# -------------------------
+# Stacking ensemble
+# -------------------------
+top3_models = results_df['Model'].iloc[:3].tolist()
+estimators = [(name, best_models[name]) for name in top3_models if name != 'LogisticRegression']  # optional
+stack_model = StackingClassifier(
+    estimators=estimators,
+    final_estimator=LogisticRegression(),
+    cv=3,
+    n_jobs=-1,
+    passthrough=True
+)
+stack_model.fit(X_train_res[selected_features], y_train_res)
+
+y_pred_stack = stack_model.predict(X_test[selected_features])
+y_proba_stack = stack_model.predict_proba(X_test[selected_features])[:, 1]
+
+stack_metrics = {
+    'Model': 'StackingEnsemble',
+    'Accuracy': accuracy_score(y_test, y_pred_stack),
+    'Precision': precision_score(y_test, y_pred_stack),
+    'Recall': recall_score(y_test, y_pred_stack),
+    'F1': f1_score(y_test, y_pred_stack),
+    'ROC_AUC': roc_auc_score(y_test, y_proba_stack)
+}
+
+results_df = results_df.append(stack_metrics, ignore_index=True).sort_values('F1', ascending=False)
+best_model_name = results_df.iloc[0]['Model']
+best_model = stack_model if best_model_name == 'StackingEnsemble' else best_models[best_model_name]
+
+print(f"\nBest Model Selected: {best_model_name}")
+print(f"Test F1 Score: {results_df.iloc[0]['F1']:.4f}")
+
+# -------------------------
+# Confusion matrix
+# -------------------------
+cm = confusion_matrix(y_test, best_model.predict(X_test[selected_features]))
+print(f"\nConfusion Matrix:\n{cm}")
+
+# -------------------------
+# Save model
+# -------------------------
+joblib.dump({
+    'model': best_model,
+    'selected_features': selected_features.tolist(),
+    'performance': results_df.iloc[0].to_dict()
+}, 'final_attrition_model.joblib')
+print("\nModel saved as 'final_attrition_model.joblib'")
+
+# -------------------------
+# ROC Curve for all models
+# -------------------------
+plt.figure(figsize=(8,6))
+for name, model in list(best_models.items()) + [('StackingEnsemble', stack_model)]:
+    y_proba = model.predict_proba(X_test[selected_features])[:, 1]
+    RocCurveDisplay.from_predictions(y_test, y_proba, name=name)
+plt.title('ROC Curve Comparison')
+plt.show()
+
+# -------------------------
+# Feature importance (for RF, XGBoost)
+# -------------------------
+importances = {}
+for name in ['RandomForest', 'XGBoost']:
+    if name in best_models:
+        model = best_models[name]
+        if hasattr(model, 'feature_importances_'):
+            importances[name] = pd.Series(model.feature_importances_, index=selected_features).sort_values(ascending=False)
+
+for name, imp in importances.items():
+    plt.figure(figsize=(8,6))
+    imp.plot(kind='bar')
+    plt.title(f'Feature Importance - {name}')
+    plt.show()
+
+# -------------------------
+# Example prediction
+# -------------------------
+example = pd.DataFrame([{feature: 0 for feature in selected_features}])
+if 'Remote Work_Yes' in selected_features:
+    example['Remote Work_Yes'] = 1
+
+prediction = best_model.predict(example)
+prob = best_model.predict_proba(example)[0]
+print(f"\nExample Prediction: {'STAY' if prediction[0]==1 else 'LEAVE'} (prob: {prob[1]:.2%})")
+
